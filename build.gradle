@@ -1,55 +1,277 @@
+
 plugins {
-	id 'java'
-	id 'java-library'
-	id 'org.springframework.boot' version '3.5.5'
-	id 'io.spring.dependency-management' version '1.1.7'
-	id 'maven-publish'
+    id 'java'
+    id 'java-library'
+    id 'org.springframework.boot' version '3.5.5'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'com.vanniktech.maven.publish' version '0.28.0'
+    id 'signing'
+    // IMPORTANT: do NOT apply 'maven-publish' directly; Vanniktech handles it
 }
 
-group = 'mini.integration.lib'
-version = '0.0.2'
+group = 'io.github.dbunthai'
+version = '0.1.3' // bump; don't reuse 0.1.2
 
+ext { springBootVersion = '3.5.5' } // align with plugin
 
-publishing {
-	publications {
-		sdk(MavenPublication) {
-			from components.java
-			groupId = project.group
-			artifactId = 'integration-lib'  //
-			version = project.version
-		}
-	}
-}
+java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
 
-java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(21)
-	}
-}
-
-repositories {
-	mavenCentral()
-}
-
-ext {
-	springBootVersion = '3.5.4' // match your actual version
-}
+repositories { mavenCentral() }
 
 dependencies {
-	compileOnly "org.projectlombok:lombok"
-	annotationProcessor "org.projectlombok:lombok"
+    // keep your deps exactly as-is
+    compileOnly "org.projectlombok:lombok"
+    annotationProcessor "org.projectlombok:lombok"
 
-	compileOnly "org.springframework.boot:spring-boot-starter-json:$springBootVersion"
-	compileOnly "net.datafaker:datafaker:2.0.2"
-	compileOnly "com.googlecode.libphonenumber:libphonenumber:9.0.7"
-	api         "org.springframework.boot:spring-boot-starter-web:$springBootVersion"
-	compileOnly "org.springframework.boot:spring-boot-starter-data-jpa:$springBootVersion"
-	compileOnly "jakarta.persistence:jakarta.persistence-api:3.1.0"
-	compileOnly "org.springframework.boot:spring-boot-starter:$springBootVersion"
-	testImplementation "org.springframework.boot:spring-boot-starter-test:$springBootVersion"
-	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+    compileOnly "org.springframework.boot:spring-boot-starter-json:$springBootVersion"
+    compileOnly "net.datafaker:datafaker:2.0.2"
+    compileOnly "com.googlecode.libphonenumber:libphonenumber:9.0.7"
+    api         "org.springframework.boot:spring-boot-starter-web:$springBootVersion"
+    compileOnly "org.springframework.boot:spring-boot-starter-data-jpa:$springBootVersion"
+    compileOnly "jakarta.persistence:jakarta.persistence-api:3.1.0"
+    compileOnly "org.springframework.boot:spring-boot-starter:$springBootVersion"
+    testImplementation "org.springframework.boot:spring-boot-starter-test:$springBootVersion"
+    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
-tasks.named('test') {
-	useJUnitPlatform()
+/** ---- Make the produced files deterministic & consistently named ---- */
+
+// produce a normal library JAR, not a boot fat jar
+bootJar { enabled = false }
+jar {
+    enabled = true
+    // Make the on-disk filename match the publication artifactId to avoid any copy/rename oddities
+    archiveBaseName.set('mini-integration-lib')  // <-- if you want 'integration-lib', change here AND in coordinates()
+    archiveClassifier.set('')                    // no "-plain"
 }
+// reproducible bytes (no timestamp/order drift)
+tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder  = true
+}
+
+/** ---- Single publication with Vanniktech ---- */
+mavenPublishing {
+    // Use ONE artifactId consistently. If you prefer 'integration-lib', change both here and in jar{} above.
+    coordinates('io.github.dbunthai', 'mini-integration-lib', version)
+
+    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+    signAllPublications()
+
+    pom {
+        name.set("Integration Lib SDK")
+        description.set("Mini Integration Library")
+        url.set("https://github.com/DBunthai/mini-integration")
+        licenses { license { name.set("Apache License 2.0"); url.set("https://www.apache.org/licenses/LICENSE-2.0") } }
+        developers { developer { id.set("DBunthai"); name.set("Bun Thai Deng"); email.set("dengbunthai@gmail.com") } }
+        scm {
+            url.set("https://github.com/DBunthai/mini-integration")
+            connection.set("scm:git:https://github.com/DBunthai/mini-integration.git")
+            developerConnection.set("scm:git:git@github.com:DBunthai/mini-integration.git")
+        }
+    }
+}
+
+/** ---- Signing via GPG cmd (since you configured signing.gnupg.*) ---- */
+signing { useGpgCmd() }
+
+/** ---- Belt & suspenders: enforce signing after all files are generated ---- */
+gradle.projectsEvaluated {
+    // Make sure these exist before signing
+    tasks.matching { it.name == 'signMavenPublication' }.configureEach {
+        // archives
+        dependsOn tasks.matching { it.name in ['jar', 'sourcesJar', 'javadocJar'] }
+        // metadata
+        dependsOn tasks.matching { it.name in [
+                'generatePomFileForMavenPublication',
+                'generateMetadataFileForMavenPublication'
+        ] }
+    }
+}
+
+tasks.named('test') { useJUnitPlatform() }
+
+
+////plugins {
+////    id 'java'
+////    id 'java-library'
+////    id 'org.springframework.boot' version '3.5.5'
+////    id 'io.spring.dependency-management' version '1.1.7'
+////    id 'com.vanniktech.maven.publish' version '0.28.0'
+////    id 'signing'
+////}
+////
+////group = 'io.github.dbunthai'
+////version = '0.1.3'
+////
+////java {
+////    toolchain { languageVersion = JavaLanguageVersion.of(21) }
+////}
+////
+////repositories { mavenCentral() }
+////
+////ext { springBootVersion = '3.5.5' } // align with plugin
+////
+////// Keep Spring Boot plugin, but force a normal library JAR (no "-plain")
+////bootJar { enabled = false }
+////jar {
+////    enabled = true
+////    archiveClassifier = ''   // <- kills "-plain" classifier explicitly
+////}
+////
+////tasks.withType(AbstractArchiveTask).configureEach {
+////    preserveFileTimestamps = false
+////    reproducibleFileOrder  = true
+////}
+////
+////dependencies {
+////    compileOnly "org.projectlombok:lombok"
+////    annotationProcessor "org.projectlombok:lombok"
+////
+////    compileOnly "org.springframework.boot:spring-boot-starter-json:$springBootVersion"
+////    compileOnly "net.datafaker:datafaker:2.0.2"
+////    compileOnly "com.googlecode.libphonenumber:libphonenumber:9.0.7"
+////    api         "org.springframework.boot:spring-boot-starter-web:$springBootVersion"
+////    compileOnly "org.springframework.boot:spring-boot-starter-data-jpa:$springBootVersion"
+////    compileOnly "jakarta.persistence:jakarta.persistence-api:3.1.0"
+////    compileOnly "org.springframework.boot:spring-boot-starter:$springBootVersion"
+////    testImplementation "org.springframework.boot:spring-boot-starter-test:$springBootVersion"
+////    testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+////}
+////
+////tasks.named('test') { useJUnitPlatform() }
+////
+////signing { useGpgCmd() }   // explicit, since you’re using GPG mode
+////
+////mavenPublishing {
+////    // single, canonical artifact
+////    coordinates('io.github.dbunthai', 'integration-lib', version)
+////
+////    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+////    signAllPublications()
+////
+////    pom {
+////        name.set("Integration Lib SDK")
+////        description.set("Mini Integration Library")
+////        url.set("https://github.com/DBunthai/mini-integration")
+////        licenses { license { name.set("Apache License 2.0"); url.set("https://www.apache.org/licenses/LICENSE-2.0") } }
+////        developers { developer { id.set("DBunthai"); name.set("Bun Thai Deng"); email.set("dengbunthai@gmail.com") } }
+////        scm {
+////            url.set("https://github.com/DBunthai/mini-integration")
+////            connection.set("scm:git:https://github.com/DBunthai/mini-integration.git")
+////            developerConnection.set("scm:git:git@github.com:DBunthai/mini-integration.git")
+////        }
+////    }
+////}
+//
+//
+//plugins {
+//	id 'java'
+//	id 'java-library'
+//	id 'org.springframework.boot' version '3.5.5'
+//	id 'io.spring.dependency-management' version '1.1.7'
+//    id 'com.vanniktech.maven.publish' version '0.28.0'
+//	id 'maven-publish'
+//    id("signing")
+//}
+//
+//group = 'io.github.dbunthai'
+//version = '0.1.3'
+//
+//
+//// If this is a LIB module and Boot plugin is applied somewhere, neutralize it here:
+//tasks.matching { it.name == 'bootJar' }.configureEach { enabled = false }
+//tasks.matching { it.name == 'jar'     }.configureEach { enabled = true }
+//
+//// Reproducible archives (no timestamp/order drift after signing)
+//tasks.withType(AbstractArchiveTask).configureEach {
+//    preserveFileTimestamps = false
+//    reproducibleFileOrder  = true
+//}
+////publishing {
+////	publications {
+////		sdk(MavenPublication) {
+////			from components.java
+////			groupId = project.group
+////			artifactId = 'integration-lib'  //
+////			version = project.version
+////		}
+////	}
+////}
+//
+//mavenPublishing {
+////    // Explicit coordinates so artifactId != project.name
+////    coordinates(project.group.toString(), "integration-lib", project.version.toString())
+//
+////    coordinates('io.github.dbunthai', 'mini-integration-lib', version)
+//
+//    publishToMavenCentral(com.vanniktech.maven.publish.SonatypeHost.CENTRAL_PORTAL)
+//    signAllPublications()
+//
+//    pom {
+//        name.set("Integration Lib SDK")
+//        description.set("Mini Integration Library")
+//        url.set("https://github.com/DBunthai/mini-integration")
+//        licenses {
+//            license {
+//                name.set("Apache License 2.0")
+//                url.set("https://www.apache.org/licenses/LICENSE-2.0")
+//            }
+//        }
+//        developers {
+//            developer {
+//                id.set("DBunthai")
+//                name.set("Bun Thai Deng")
+//                email.set("dengbunthai@gmail.com")
+//            }
+//        }
+//        scm {
+//            url.set("https://github.com/DBunthai/mini-integration")
+//            connection.set("scm:git:https://github.com/DBunthai/mini-integration.git")
+//            developerConnection.set("scm:git:git@github.com:DBunthai/mini-integration.git")
+//        }
+//    }
+//}
+//
+//java {
+//	toolchain {
+//		languageVersion = JavaLanguageVersion.of(21)
+//	}
+//}
+//
+//repositories {
+//	mavenCentral()
+//}
+//
+//ext {
+//	springBootVersion = '3.5.4' // match your actual version
+//}
+//
+//dependencies {
+//	compileOnly "org.projectlombok:lombok"
+//	annotationProcessor "org.projectlombok:lombok"
+//
+//	compileOnly "org.springframework.boot:spring-boot-starter-json:$springBootVersion"
+//	compileOnly "net.datafaker:datafaker:2.0.2"
+//	compileOnly "com.googlecode.libphonenumber:libphonenumber:9.0.7"
+//	api         "org.springframework.boot:spring-boot-starter-web:$springBootVersion"
+//	compileOnly "org.springframework.boot:spring-boot-starter-data-jpa:$springBootVersion"
+//	compileOnly "jakarta.persistence:jakarta.persistence-api:3.1.0"
+//	compileOnly "org.springframework.boot:spring-boot-starter:$springBootVersion"
+//	testImplementation "org.springframework.boot:spring-boot-starter-test:$springBootVersion"
+//	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
+//}
+//
+//signing {
+//    useGpgCmd()
+//}
+//
+//
+//bootJar { enabled = false }
+//jar {
+//    enabled = true
+//    archiveClassifier = ''   // <- kills "-plain" classifier explicitly
+//}
+//tasks.named('test') {
+//	useJUnitPlatform()
+//}
